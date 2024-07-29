@@ -2,6 +2,7 @@ const blogsRouter = require('express').Router();
 const Blog = require('../models/blog');
 const User = require('../models/user');
 const jwt = require('jsonwebtoken');
+const { userExtractor, tokenExtractor } = require('../utils/middleware');
 
 blogsRouter.get('/', async (req, res) => {
   const blogs = await Blog
@@ -11,7 +12,7 @@ blogsRouter.get('/', async (req, res) => {
   res.json(blogs);
 });
 
-blogsRouter.post('/', async (req, res) => {
+blogsRouter.post('/', tokenExtractor, async (req, res) => {
   const body = req.body;
 
   const decodedToken = jwt.verify(req.token, process.env.SECRET);
@@ -19,8 +20,8 @@ blogsRouter.post('/', async (req, res) => {
   if (!decodedToken.id) {
     return res.status(401).json({ error: 'invalid token' });
   }
-
-  const user = await User.findById(body.userId);
+  
+  const user = await User.findById(decodedToken.id);
 
   const blog = new Blog({
     title: body.title,
@@ -38,38 +39,39 @@ blogsRouter.post('/', async (req, res) => {
   res.status(201).json(result);
 });
 
-blogsRouter.delete('/:id', async (req, res) => {
+blogsRouter.delete('/:id', tokenExtractor, userExtractor, async (req, res) => {
   const id = req.params.id;
-  const decodedToken = jwt.verify(req.token, process.env.SECRET);
-  const userId = decodedToken.id;
-
-  if (!decodedToken.id) {
-    res.status(401).json({ error: 'invalid token' });
-  }
+  const userId = req.user;
 
   const blog = await Blog.findById(id);
-  
-  if (userId.toString() === blog.user.toString()) {
+  console.log(userId);
+
+  if (!blog.user || userId !== blog.user.toString()) {
+    res.status(401).json({ error: 'You don\'t have access to that blog' });
+  } else {
     await Blog.findByIdAndDelete(id);
     res.status(204).end();
-  } else {
-    res.status(401).json({ error: 'blog does not belong' })
   }
+});
 
-})
-
-blogsRouter.put('/:id', async (req, res) => {
+blogsRouter.put('/:id', tokenExtractor, userExtractor, async (req, res) => {
   const id = req.params.id;
   const body = req.body;
+  const userId = req.user;
+  const blog = await Blog.findById(id);
 
-  const blog = {
-    title: body.title,
-    author: body.author,
-    likes: body.likes
+  if (!blog.user || userId !== blog.user.toString()) {
+    res.status(401).json({ error: 'You don\'t have access to that blog' });
+  } else {
+    const blog = {
+      title: body.title,
+      author: body.author,
+      likes: body.likes
+    }
+    const updatedBlog = await Blog.findByIdAndUpdate(id, blog, { new: true });
+    res.json(updatedBlog);
   }
 
-  const updatedBlog = await Blog.findByIdAndUpdate(id, blog, { new: true });
-  res.json(updatedBlog);
 });
 
 module.exports = blogsRouter;
